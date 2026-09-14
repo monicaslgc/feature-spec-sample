@@ -5,27 +5,27 @@
 **Stakeholders:** Engineering, Compliance, Support, Design
 **Target release:** Q2 (phased)
 
-> Note: this is a sample spec written for a portfolio. The product ("Northfield," a fictional consumer fintech app), the vendor, and every number in here are invented. The format and level of detail are real — this is close to how I'd actually scope and write a spec like this.
+> Heads up: this is a sample spec I wrote for my portfolio, not a real one. "Northfield" is a made-up consumer fintech app, the vendor's made up, every number in here is made up. The format and the level of detail are real, though — this is genuinely close to how I'd scope and write something like this.
 
 ## 1. Problem
 
-Right now, new users on Northfield verify their identity by uploading a photo of an ID and a selfie, which a member of our ops team reviews by hand. That's fine at 200 signups a day. It is not fine at the 1,500+/day we're projecting once the referral program launches in Q2, and it already shows: median review time is 14 hours, and it spikes past 48 hours on weekends when ops is short-staffed. Users who don't get verified within a day mostly don't come back.
+Right now, new users on Northfield verify their identity by uploading a photo of an ID and a selfie, and someone on ops reviews it by hand. That's fine at 200 signups a day. It's not fine at the 1,500+/day we're projecting once the referral program launches in Q2 — and honestly it's already showing: median review time is 14 hours, and it spikes past 48 hours on weekends when ops is short-staffed. Users who don't get verified within a day mostly just don't come back.
 
-We also have a compliance deadline: our banking partner requires us to move to an auditable, timestamped verification process with a documented decision trail by end of Q2, regardless of volume. Manual review with review notes in a shared spreadsheet doesn't meet that bar.
+There's also a compliance deadline sitting on top of this: our banking partner wants us on an auditable, timestamped verification process with a documented decision trail by end of Q2, regardless of volume. Manual review with notes in a shared spreadsheet doesn't get us there.
 
 ## 2. Goals
 
-- Automate the common case (clear photo, valid ID, face match) so it resolves in under 2 minutes with no human in the loop.
-- Route anything the system isn't confident about to manual review, with the system's reasoning attached, not just the raw images.
-- Produce a decision record for every verification (automated or manual) that satisfies our banking partner's audit requirement.
-- Get median time-to-verified under 5 minutes and same-day resolution to 95%+, even at projected Q2 volume.
+- Automate the common case (clear photo, valid ID, face match) so it resolves in under 2 minutes, no human involved.
+- Route anything the system isn't confident about to manual review, and hand reviewers the system's reasoning, not just the raw images.
+- Produce a decision record for every verification, automated or manual, that satisfies the audit requirement.
+- Get median time-to-verified under 5 minutes and same-day resolution to 95%+, even at Q2 volume.
 
 ## 3. Non-goals
 
-- We are not changing what documents are accepted (still passport, driver's license, national ID card). Adding new document types is a separate spec.
-- We are not building our own OCR or face-matching models. This spec assumes a third-party verification vendor; vendor selection is covered in a separate doc, not here.
-- We are not removing the manual review queue. It gets smaller and better-informed, not eliminated — there will always be a tail of cases (damaged IDs, name mismatches, expired documents) that need a person.
-- Re-verification (e.g. if a user's ID expires) is out of scope for this phase.
+- Not changing what documents are accepted (still passport, driver's license, national ID card). New document types are their own spec.
+- Not building our own OCR or face-matching models. This assumes a third-party verification vendor — vendor selection is a separate doc.
+- Not removing the manual review queue. It gets smaller and better-informed, not eliminated. There's always going to be a tail of damaged IDs, name mismatches, expired documents that need a person.
+- Re-verification (say, a user's ID expires) is out of scope for this phase. I know that's going to come up — see open questions.
 
 ## 4. Proposed solution
 
@@ -33,14 +33,14 @@ We also have a compliance deadline: our banking partner requires us to move to a
 
 1. User uploads ID photo + selfie in-app (unchanged from today).
 2. We send both to the verification vendor's API.
-3. Vendor returns: document authenticity score, extracted fields (name, DOB, document number, expiry), face match score, and a list of flags (e.g. "expired," "low image quality," "font irregularity").
-4. Our decision engine applies thresholds (see 4.3) to auto-approve, auto-reject, or route to manual review.
-5. Every outcome — automated or manual — is written to a verification record with: input images (retained per policy, see 4.4), vendor response, decision, decision reason, reviewer (if any), and timestamp.
+3. Vendor comes back with: a document authenticity score, extracted fields (name, DOB, document number, expiry), a face match score, and a list of flags ("expired," "low image quality," "font irregularity," etc.).
+4. Our decision engine runs those through the thresholds in 4.3 — auto-approve, auto-reject, or manual review.
+5. Every outcome gets written to a verification record: input images (retained per 4.4), vendor response, decision, decision reason, reviewer if any, timestamp.
 6. User sees a status update in-app. Auto-approved users see it within ~2 minutes; queued users see "under review" with an expected timeframe.
 
 ### 4.2 What changes for the manual review team
 
-Today reviewers look at raw images and make a judgment call with no structured context. After this change, reviewers only see cases that already failed automated thresholds, and they see *why*: the specific flags and scores that pushed it into the queue, not just the photos. The expectation is this cuts average manual review time per case roughly in half, because reviewers aren't starting from zero.
+Right now a reviewer just gets the raw images and has to make a call with basically no context. After this ships, they only see cases that already failed the automated thresholds, and they get the reasoning alongside the photos — which flags fired, what the scores were. My guess is that alone cuts average review time per case roughly in half, since nobody's starting from a blank slate anymore.
 
 ### 4.3 Decision thresholds (initial, tunable)
 
@@ -50,61 +50,61 @@ Today reviewers look at raw images and make a judgment call with no structured c
 | Authenticity score < 0.50 OR "document expired" flag OR "likely fraudulent" flag | Auto-reject |
 | Everything else | Manual review, with vendor flags attached |
 
-These thresholds are a starting point, not final. Compliance needs to sign off before launch, and we should expect to tune them in the first few weeks based on false-positive/negative rates — see open questions.
+These are a starting point, not gospel. Compliance signs off before launch, and I'd expect us to tune them in the first few weeks once we see real false-positive/negative rates — see open questions.
 
 ### 4.4 Data handling
 
 - ID images and extracted PII are encrypted at rest, same as today.
-- Retention: verification records (decision + metadata) are kept for 7 years per our banking partner's requirement. Raw images are retained for 90 days post-decision, then deleted, unless a case is under active dispute.
-- Every access to a verification record (by a reviewer, or by anyone pulling records for audit) is logged with who, when, and why.
+- Retention: verification records (decision + metadata) kept 7 years per the banking partner's requirement. Raw images kept 90 days post-decision, then deleted, unless a case is under active dispute.
+- Every access to a verification record — reviewer or anyone pulling records for audit — gets logged with who, when, why.
 
 ## 5. Requirements
 
 ### Functional
 
-- FR1: System must call the verification vendor synchronously on upload and handle timeouts gracefully (retry once, then fall back to manual queue).
-- FR2: Auto-approve and auto-reject decisions must be reversible — a compliance admin can override any automated decision, and that override is itself logged.
-- FR3: Manual reviewers must see vendor flags and scores alongside the images, not just the images.
-- FR4: Every verification record must be exportable in a fixed format for audit requests, without engineering involvement.
-- FR5: Users who are auto-rejected must get a clear next step (resubmit, contact support) — not a dead end.
+- FR1: System calls the verification vendor synchronously on upload and handles timeouts gracefully (retry once, then fall back to manual queue).
+- FR2: Auto-approve and auto-reject decisions are reversible — a compliance admin can override any automated decision, and the override itself gets logged.
+- FR3: Manual reviewers see vendor flags and scores alongside the images, not just the images.
+- FR4: Every verification record is exportable in a fixed format for audit requests, no engineering involvement needed.
+- FR5: Auto-rejected users get a clear next step (resubmit, contact support), not a dead end.
 
 ### Non-functional
 
-- NFR1: Vendor API call must complete (or time out) within 15 seconds; the in-app "verifying..." state should never hang indefinitely.
-- NFR2: System must handle vendor downtime by falling back to manual review, not by blocking signups.
-- NFR3: Decision engine changes (threshold tuning) must be deployable without a full app release, since we expect to iterate on thresholds post-launch.
+- NFR1: Vendor API call completes or times out within 15 seconds. The "verifying..." state should never just hang.
+- NFR2: Vendor downtime falls back to manual review, doesn't block signups.
+- NFR3: Threshold tuning is deployable without a full app release — we're going to be iterating on these post-launch.
 
 ## 6. Success metrics
 
 - Median time-to-verified: from ~14 hours to under 5 minutes.
 - Same-day resolution rate: from current baseline (~78%) to 95%+.
-- Manual review queue volume: reduced by 70%+ compared to today's fully-manual flow, even as total signups grow.
-- False-negative rate (fraudulent ID auto-approved): tracked from day one, hard cap agreed with Compliance before launch — this metric can block a rollout, nothing else can.
+- Manual review queue volume: down 70%+ from today's fully-manual flow, even as signups keep growing.
+- False-negative rate (fraudulent ID auto-approved): tracked from day one, hard cap agreed with Compliance before we launch. This is the one metric that can block a rollout — nothing else does.
 
 ## 7. Rollout plan
 
-- **Phase 1:** Ship to 10% of new signups, manual review still gets a copy of every case (shadow mode) so we can compare automated decisions against human ones without any user-facing risk.
-- **Phase 2:** If false-negative rate holds under the agreed cap after 2 weeks in shadow mode, go live for that 10% for real, expand to 50%.
-- **Phase 3:** Full rollout, once thresholds are stable and Compliance has signed off on the shadow-mode results.
+- **Phase 1:** 10% of new signups, but manual review still gets a copy of every case (shadow mode) so we can compare automated decisions against human ones without any user-facing risk.
+- **Phase 2:** If false-negative rate holds under the agreed cap after 2 weeks in shadow mode, go live for real on that 10%, expand to 50%.
+- **Phase 3:** Full rollout, once thresholds have settled and Compliance has signed off on the shadow-mode results.
 
-Each phase has a go/no-go review with Compliance before moving to the next one.
+Each phase gets a go/no-go review with Compliance before we move to the next one.
 
 ## 8. Risks
 
-- **Vendor accuracy on non-US documents.** Our current vendor's stated accuracy is strongest on US-issued IDs. We serve a meaningfully international user base. Mitigation: pull document-type-level accuracy stats from the vendor before launch and set more conservative thresholds for document types with weaker coverage.
-- **Threshold tuning period creates a rocky first few weeks.** We should expect the manual queue to look different (not necessarily smaller) right after launch while thresholds settle. Support should be briefed so this doesn't look like a regression.
-- **Compliance sign-off could slip the timeline.** The Q2 deadline is fixed; this spec's timeline assumes Compliance review starts now, in parallel with engineering, not after a build is done.
+- **Vendor accuracy on non-US documents.** The vendor's numbers are strongest on US-issued IDs, and a meaningful chunk of our users aren't US-based. I want document-type-level accuracy stats from them before launch so we can set more conservative thresholds anywhere their coverage is weaker, instead of finding out the hard way.
+- **The first few weeks post-launch are going to look messy.** The queue will look different, not necessarily smaller, while thresholds settle. Worth briefing Support ahead of time so nobody reads that as a regression.
+- **Compliance sign-off is the real risk to the timeline.** The Q2 date isn't moving, so this only works if Compliance review starts now, alongside engineering, not after something's already built and sitting there waiting on a stamp.
 
 ## 9. Open questions
 
-- Who owns threshold tuning after launch — Product or a dedicated trust & safety function? Affects NFR3's "no full release needed" requirement.
-- Do we need a distinct flow for re-verification when this phase explicitly excludes it, or will support end up needing a stopgap regardless?
-- What's an acceptable false-positive rate (real user auto-rejected)? We've agreed a hard cap on false negatives; we haven't agreed one for false positives, and a high rate there just pushes people into a support queue instead of a review queue.
+- Who owns threshold tuning after launch, Product or a dedicated trust & safety function? This affects NFR3.
+- We've scoped re-verification out, but is support going to need some kind of stopgap for expired-ID cases regardless?
+- What's an acceptable false-positive rate (a real user gets auto-rejected)? We've agreed a hard cap on false negatives. We haven't agreed one for false positives, and a high rate there just pushes people into a support queue instead of a review queue — still a cost, just a different one.
 
 ## 10. Acceptance criteria
 
 - [ ] A new signup with a clear, valid ID and matching selfie is auto-approved in under 2 minutes in 95%+ of cases in shadow-mode testing.
 - [ ] A verification record exists for every signup attempt, automated or manual, and is exportable without engineering support.
 - [ ] Compliance has reviewed and signed off on the thresholds in section 4.3 before Phase 1 begins.
-- [ ] Manual reviewers report (via a short survey after 2 weeks) that flag context measurably speeds up their review process.
+- [ ] Manual reviewers report (short survey after 2 weeks) that flag context actually speeds up their review process.
 - [ ] Vendor downtime falls back to manual review with no user-facing error state.
